@@ -12,17 +12,18 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
+# limitations under the License.
 
 import logging
 import os
 import sys
+import warnings
 from dataclasses import dataclass, field
 from random import randint
 from typing import Optional
 
 import datasets
 import numpy as np
-import torchaudio
 from datasets import DatasetDict, load_dataset
 
 import transformers
@@ -43,19 +44,9 @@ from transformers.utils.versions import require_version
 logger = logging.getLogger(__name__)
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-check_min_version("4.11.0.dev0")
+check_min_version("4.18.0.dev0")
 
-require_version("datasets>=1.12.1", "To fix: pip install -r examples/pytorch/audio-classification/requirements.txt")
-
-
-def load_audio(path: str, sample_rate: int = 16000):
-    wav, sr = torchaudio.load(path)
-    # convert multi-channel audio to mono
-    wav = wav.mean(0)
-    # standardize sample rate if it varies in the dataset
-    resampler = torchaudio.transforms.Resample(sr, sample_rate)
-    wav = resampler(wav)
-    return wav
+require_version("datasets>=1.14.0", "To fix: pip install -r examples/pytorch/audio-classification/requirements.txt")
 
 
 def random_subsample(wav: np.ndarray, max_length: float, sample_rate: int = 16000):
@@ -86,24 +77,24 @@ class DataTrainingArguments:
     eval_file: Optional[str] = field(
         default=None, metadata={"help": "A file containing the validation audio paths and labels."}
     )
-    train_split_name: Optional[str] = field(
+    train_split_name: str = field(
         default="train",
         metadata={
             "help": "The name of the training data set split to use (via the datasets library). Defaults to 'train'"
         },
     )
-    eval_split_name: Optional[str] = field(
+    eval_split_name: str = field(
         default="validation",
         metadata={
             "help": "The name of the training data set split to use (via the datasets library). Defaults to "
             "'validation'"
         },
     )
-    audio_column_name: Optional[str] = field(
-        default="file",
-        metadata={"help": "The name of the dataset column containing the audio data. Defaults to 'file'"},
+    audio_column_name: str = field(
+        default="audio",
+        metadata={"help": "The name of the dataset column containing the audio data. Defaults to 'audio'"},
     )
-    label_column_name: Optional[str] = field(
+    label_column_name: str = field(
         default="label", metadata={"help": "The name of the dataset column containing the labels. Defaults to 'label'"}
     )
     max_train_samples: Optional[int] = field(
@@ -120,7 +111,7 @@ class DataTrainingArguments:
             "value if set."
         },
     )
-    max_length_seconds: Optional[float] = field(
+    max_length_seconds: float = field(
         default=20,
         metadata={"help": "Audio clips will be randomly cut to this length during training if the value is set."},
     )
@@ -146,11 +137,13 @@ class ModelArguments:
         default="main",
         metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
     )
-    feature_extractor_name: str = field(default=None, metadata={"help": "Name or path of preprocessor config."})
-    freeze_feature_extractor: Optional[bool] = field(
-        default=True, metadata={"help": "Whether to freeze the feature extractor layers of the model."}
+    feature_extractor_name: Optional[str] = field(
+        default=None, metadata={"help": "Name or path of preprocessor config."}
     )
-    attention_mask: Optional[bool] = field(
+    freeze_feature_encoder: bool = field(
+        default=True, metadata={"help": "Whether to freeze the feature encoder layers of the model."}
+    )
+    attention_mask: bool = field(
         default=True, metadata={"help": "Whether to generate an attention mask in the feature extractor."}
     )
     use_auth_token: bool = field(
@@ -160,6 +153,24 @@ class ModelArguments:
             "with private models)."
         },
     )
+    freeze_feature_extractor: Optional[bool] = field(
+        default=None, metadata={"help": "Whether to freeze the feature extractor layers of the model."}
+    )
+
+    def __post_init__(self):
+        if not self.freeze_feature_extractor and self.freeze_feature_encoder:
+            warnings.warn(
+                "The argument `--freeze_feature_extractor` is deprecated and "
+                "will be removed in a future version. Use `--freeze_feature_encoder`"
+                "instead. Setting `freeze_feature_encoder==True`.",
+                FutureWarning,
+            )
+        if self.freeze_feature_extractor and not self.freeze_feature_encoder:
+            raise ValueError(
+                "The argument `--freeze_feature_extractor` is deprecated and "
+                "should not be used in combination with `--freeze_feature_encoder`."
+                "Only make use of `--freeze_feature_encoder`."
+            )
 
 
 def main():
@@ -246,13 +257,18 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
 
+    # `datasets` takes care of automatically loading and resampling the audio,
+    # so we just need to set the correct target sampling rate.
+    raw_datasets = raw_datasets.cast_column(
+        data_args.audio_column_name, datasets.features.Audio(sampling_rate=feature_extractor.sampling_rate)
+    )
+
     def train_transforms(batch):
         """Apply train_transforms across a batch."""
         output_batch = {"input_values": []}
-        for f in batch[data_args.audio_column_name]:
-            wav = load_audio(f, sample_rate=feature_extractor.sampling_rate)
+        for audio in batch[data_args.audio_column_name]:
             wav = random_subsample(
-                wav, max_length=data_args.max_length_seconds, sample_rate=feature_extractor.sampling_rate
+                audio["array"], max_length=data_args.max_length_seconds, sample_rate=feature_extractor.sampling_rate
             )
             output_batch["input_values"].append(wav)
         output_batch["labels"] = [label for label in batch[data_args.label_column_name]]
@@ -262,8 +278,8 @@ def main():
     def val_transforms(batch):
         """Apply val_transforms across a batch."""
         output_batch = {"input_values": []}
-        for f in batch[data_args.audio_column_name]:
-            wav = load_audio(f, sample_rate=feature_extractor.sampling_rate)
+        for audio in batch[data_args.audio_column_name]:
+            wav = audio["array"]
             output_batch["input_values"].append(wav)
         output_batch["labels"] = [label for label in batch[data_args.label_column_name]]
 
@@ -307,12 +323,10 @@ def main():
     )
 
     # freeze the convolutional waveform encoder
-    if model_args.freeze_feature_extractor:
-        model.freeze_feature_extractor()
+    if model_args.freeze_feature_encoder:
+        model.freeze_feature_encoder()
 
     if training_args.do_train:
-        if "train" not in raw_datasets:
-            raise ValueError("--do_train requires a train dataset")
         if data_args.max_train_samples is not None:
             raw_datasets["train"] = (
                 raw_datasets["train"].shuffle(seed=training_args.seed).select(range(data_args.max_train_samples))
@@ -321,8 +335,6 @@ def main():
         raw_datasets["train"].set_transform(train_transforms, output_all_columns=False)
 
     if training_args.do_eval:
-        if "eval" not in raw_datasets:
-            raise ValueError("--do_eval requires a validation dataset")
         if data_args.max_eval_samples is not None:
             raw_datasets["eval"] = (
                 raw_datasets["eval"].shuffle(seed=training_args.seed).select(range(data_args.max_eval_samples))

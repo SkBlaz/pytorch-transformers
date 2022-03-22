@@ -45,6 +45,7 @@ if is_torch_available():
 if is_tf_available():
     _import_structure["modeling_tf_roberta"] = [
         "TF_ROBERTA_PRETRAINED_MODEL_ARCHIVE_LIST",
+        "TFRobertaForCausalLM",
         "TFRobertaForMaskedLM",
         "TFRobertaForMultipleChoice",
         "TFRobertaForQuestionAnswering",
@@ -90,6 +91,7 @@ if TYPE_CHECKING:
     if is_tf_available():
         from .modeling_tf_roberta import (
             TF_ROBERTA_PRETRAINED_MODEL_ARCHIVE_LIST,
+            TFRobertaForCausalLM,
             TFRobertaForMaskedLM,
             TFRobertaForMultipleChoice,
             TFRobertaForQuestionAnswering,
@@ -114,4 +116,4 @@ if TYPE_CHECKING:
 else:
     import sys
 
-    sys.modules[__name__] = _LazyModule(__name__, globals()["__file__"], _import_structure)
+    sys.modules[__name__] = _LazyModule(__name__, globals()["__file__"], _import_structure, module_spec=__spec__)

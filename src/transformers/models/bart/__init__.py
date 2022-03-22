@@ -45,6 +45,8 @@ if is_tf_available():
 
 if is_flax_available():
     _import_structure["modeling_flax_bart"] = [
+        "FlaxBartDecoderPreTrainedModel",
+        "FlaxBartForCausalLM",
         "FlaxBartForConditionalGeneration",
         "FlaxBartForQuestionAnswering",
         "FlaxBartForSequenceClassification",
@@ -76,6 +78,8 @@ if TYPE_CHECKING:
 
     if is_flax_available():
         from .modeling_flax_bart import (
+            FlaxBartDecoderPreTrainedModel,
+            FlaxBartForCausalLM,
             FlaxBartForConditionalGeneration,
             FlaxBartForQuestionAnswering,
             FlaxBartForSequenceClassification,
@@ -86,4 +90,4 @@ if TYPE_CHECKING:
 else:
     import sys
 
-    sys.modules[__name__] = _LazyModule(__name__, globals()["__file__"], _import_structure)
+    sys.modules[__name__] = _LazyModule(__name__, globals()["__file__"], _import_structure, module_spec=__spec__)

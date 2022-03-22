@@ -36,7 +36,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          pip install --upgrade pip!=21.3
           sudo apt -y update && sudo apt install -y libsndfile1-dev
           pip install .[dev]
       - name: Create model files
@@ -61,15 +61,15 @@ jobs:
       - name: Run style changes
         run: |
           git fetch origin master:master
-          make style && make quality
+          make style && make quality && make repo-consistency
 
       - name: Failure short reports
         if: ${{ always() }}
-        run: cat reports/tests_templates_failures_short.txt
+        run: cat reports/tests_templates/failures_short.txt
 
       - name: Test suite reports artifacts
         if: ${{ always() }}
         uses: actions/upload-artifact@v2
         with:
           name: run_all_tests_templates_test_reports
-          path: reports
+          path: reports/tests_templates
